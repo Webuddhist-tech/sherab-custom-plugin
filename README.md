@@ -194,6 +194,9 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 - `PartnerOrganizationMapping` — maps a `Partner` to an `Organization`, with a mobile-app
   visibility toggle and optional display-name override.
 - `CourseCreator` — instructor profiles (name, title, years of experience, bio, picture).
+- `HeroCourse` — courses curated for the homepage hero cards (see `/api/courses/hero/`
+  below). `order`: display position. `is_active`: whether it's used as a curated pick.
+  `new_until`: shows a "New course" badge until this date, independent of `is_active`.
 
 ### API endpoints
 
@@ -202,6 +205,9 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 | GET | `/schools/<slug>/` | Partner detail page (centers, categories, courses, creators). |
 | GET | `/schools/<partner_slug>/<center_slug>/` | Center detail page. |
 | GET | `/api/partners/` | Mobile-app JSON of partner-organization mappings. |
+| GET | `/api/partners/homepage/` | All partners, for the homepage schools-and-partners carousel. |
+| GET | `/api/categories/homepage/` | Homepage course categories, each with its visible courses. |
+| GET | `/api/courses/hero/` | Courses for the homepage hero cards. Personalized: a signed-in caller gets their most recent enrollments, newest first, with curated `HeroCourse` picks filling any leftover slot; a signed-out caller gets the curated picks alone. Each card also reports `is_new` (true while the course's `HeroCourse.new_until` date has not passed) and `is_enrolled` (true for a card sourced from the caller's own enrollments, false for a curated pick they have not joined). |
 
 ### Management commands
 

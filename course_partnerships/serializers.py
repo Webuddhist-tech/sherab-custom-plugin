@@ -232,6 +232,35 @@ class HomepageCourseSerializer(AbsoluteUrlMixin, serializers.ModelSerializer):
         return self.logo_url(provider.logo) if provider else None
 
 
+class HeroCourseCardSerializer(HomepageCourseSerializer):
+    """
+    Serializer for a course on one of the homepage hero cards.
+
+    Extends the homepage card with the one field only the hero renders, rather
+    than adding it to the shared serializer, so the category tabs' response
+    shape is left exactly as it was.
+
+    Serializes:
+        - everything HomepageCourseSerializer does
+        - is_new (bool): Whether the course is new enough to badge, meaning
+          staff gave it a `new_until` date that has not passed yet
+        - is_enrolled (bool): Whether this card came from the caller's own
+          enrollments, as opposed to a curated pick they have not joined
+    """
+
+    # Reads the is_new annotation the view puts on its queryset. Defaults to
+    # False so a missing annotation renders an unbadged card instead of raising.
+    is_new = serializers.BooleanField(read_only=True, default=False)
+    # Reads the is_enrolled attribute the view sets on each course while
+    # building the list — true for its enrolled courses, false for curated
+    # picks. Defaults to False so a card is never mistaken for enrolled.
+    is_enrolled = serializers.BooleanField(read_only=True, default=False)
+
+    class Meta(HomepageCourseSerializer.Meta):
+        # New list, not += or .append() — those would mutate the parent's fields.
+        fields = HomepageCourseSerializer.Meta.fields + ["is_new", "is_enrolled"]
+
+
 class HomepageCategorySerializer(serializers.ModelSerializer):
     """
     Serializer for a homepage course category and the courses filed under it.

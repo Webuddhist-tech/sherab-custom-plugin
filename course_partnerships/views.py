@@ -1,22 +1,37 @@
 import logging
 
 from common.djangoapps.edxmako.shortcuts import render_to_response
-from django.db.models import Count, Prefetch
+from common.djangoapps.student.models import CourseEnrollment
+from django.db.models import Count, Exists, OuterRef, Prefetch
 from django.http import Http404
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
+from django.views.decorators.vary import vary_on_headers
 from django.views.generic import View
+from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
 from .models import *
 from .serializers import (
+    HeroCourseCardSerializer,
     HomepageCategorySerializer,
     PartnerOrganizationMappingSerializer,
     PartnerSerializer,
 )
 
 log = logging.getLogger(__name__)
+
+# The homepage hero shows a fixed pair of floating course cards.
+HERO_COURSE_COUNT = 2
+
+# Look further than 2 enrollments in case some don't have an EnhancedCourse row
+# yet (courses added before this plugin was installed).
+ENROLLMENT_SCAN_LIMIT = 10
 
 
 class PartnerDetailView(View):
@@ -239,3 +254,194 @@ class HomepageCategoryListAPIView(PublicListAPIView):
         # an empty tab. The prefetched lists are already loaded, so filtering
         # in Python costs no extra queries.
         return [category for category in categories if category.visible_courses]
+
+
+# Personalized per caller, so it must never be cached — a shared cache could
+# serve one learner's courses to another.
+@method_decorator(never_cache, name="dispatch")
+@method_decorator(vary_on_headers("Authorization", "Cookie"), name="dispatch")
+class HeroCourseListAPIView(ListAPIView):
+    """
+    API endpoint for the courses shown in the homepage hero's floating cards.
+
+    A signed-in visitor gets their most recently enrolled courses, newest first.
+    Any slot left over — one enrollment, or a new account with none — is filled
+    from the staff-curated `HeroCourse` picks, which are also all a signed-out
+    visitor sees. So the hero has cards to render for everyone, and a learner's
+    own courses always take precedence over the curated ones.
+
+    Fewer than `HERO_COURSE_COUNT` courses is a valid response, not an error:
+    nothing is curated on a fresh install.
+
+    A card reports `is_new` when staff gave the course a `HeroCourse.new_until`
+    date that has not passed, whichever route the card took into the hero — a
+    curated pick or the caller's own enrollment.
+
+    A card also reports `is_enrolled`: true for a card sourced from the
+    caller's own enrollments, false for a curated pick they have not joined.
+
+    Method:
+        GET
+
+    Example Response (200 OK):
+        [
+            {
+                "course_id": "course-v1:Org+Course+Run",
+                "title": "Course Title",
+                "image_url": "https://yourdomain.com/../course_image.jpg",
+                "provider_name": "Provider Name",
+                "provider_logo": "https://yourdomain.com/../provider_logo.png",
+                "is_new": false,
+                "is_enrolled": false
+            },
+            ...
+        ]
+    """
+
+    # Response depends on who's asking, so auth is attempted (unlike
+    # PublicListAPIView) but stays optional, so signed-out visitors get 200s.
+    authentication_classes = (JwtAuthentication, SessionAuthentication)
+    permission_classes = [AllowAny]
+    # Fixed-length list rendered as-is — pagination and filtering don't apply.
+    pagination_class = None
+    filter_backends = []
+    serializer_class = HeroCourseCardSerializer
+
+    def get_queryset(self):
+        """
+        Return the courses for the hero cards, in the order to render them.
+
+        Returns:
+            list[EnhancedCourse]: At most HERO_COURSE_COUNT courses, the
+                caller's own enrollments first and curated picks after.
+        """
+        courses = self._recently_enrolled(self.request.user)
+
+        if len(courses) < HERO_COURSE_COUNT:
+            courses = self._top_up(courses, self._curated())
+
+        return courses
+
+    def _recently_enrolled(self, user):
+        """
+        Return the user's most recently enrolled courses, newest first.
+
+        Args:
+            user (User or AnonymousUser): The requesting user.
+
+        Returns:
+            list[EnhancedCourse]: The user's newest enrollments, empty for an
+                anonymous caller.
+        """
+        if not user.is_authenticated:
+            return []
+
+        # Ordering isn't the model default, so it has to be requested explicitly.
+        course_ids = list(
+            CourseEnrollment.objects.filter(user=user, is_active=True)
+            .order_by("-created", "-id")
+            .values_list("course_id", flat=True)[:ENROLLMENT_SCAN_LIMIT]
+        )
+
+        # No visibility filter here: the user is already enrolled, so their own
+        # course should show even if it's unlisted from the public catalog.
+        courses = self._in_key_order(self._enhanced_courses(), course_ids)[:HERO_COURSE_COUNT]
+
+        for course in courses:
+            course.is_enrolled = True
+
+        return courses
+
+    def _curated(self):
+        """
+        Return the staff-curated hero picks, in the order set in the admin.
+
+        Returns:
+            list[EnhancedCourse]: The active picks that are safe to show
+                publicly.
+        """
+        course_ids = list(
+            HeroCourse.objects.filter(is_active=True)
+            .order_by("order", "id")
+            .values_list("course_id", flat=True)
+        )
+
+        # Shown to anonymous visitors, so held to the same visibility rules as
+        # the homepage categories endpoint above.
+        queryset = self._enhanced_courses().filter(
+            course__visible_to_staff_only=False,
+            course__catalog_visibility=CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
+        )
+        courses = self._in_key_order(queryset, course_ids)
+
+        for course in courses:
+            course.is_enrolled = False
+
+        return courses
+
+    @staticmethod
+    def _enhanced_courses():
+        """
+        Return the base queryset every hero card is serialized from.
+
+        Returns:
+            QuerySet: EnhancedCourse rows with their branding relations loaded
+                and the "new course" flag annotated on.
+        """
+        # select_related also drops courses removed from the modulestore (no DB
+        # constraint links them). is_new is annotated here so both enrollment
+        # and curated cards get it automatically; is_active is unrelated — it
+        # controls curation, not the badge.
+        return EnhancedCourse.objects.select_related("course", "partner", "center").annotate(
+            is_new=Exists(
+                HeroCourse.objects.filter(
+                    course_id=OuterRef("course_id"),
+                    new_until__gte=timezone.localdate(),
+                )
+            ),
+        )
+
+    @staticmethod
+    def _in_key_order(queryset, course_ids):
+        """
+        Resolve course keys to EnhancedCourse rows, keeping the given order.
+
+        Args:
+            queryset (QuerySet): EnhancedCourse rows to draw from.
+            course_ids (list): Course keys, in the order to return them.
+
+        Returns:
+            list[EnhancedCourse]: The rows found, in `course_ids` order.
+        """
+        if not course_ids:
+            return []
+
+        # course_id__in doesn't preserve order, so it's reapplied here. Courses
+        # with no EnhancedCourse row just drop out.
+        rows = {row.course_id: row for row in queryset.filter(course_id__in=course_ids)}
+        return [rows[course_id] for course_id in course_ids if course_id in rows]
+
+    @staticmethod
+    def _top_up(courses, extras):
+        """
+        Fill the remaining hero slots from `extras`, skipping duplicates.
+
+        Args:
+            courses (list[EnhancedCourse]): Courses already claimed.
+            extras (list[EnhancedCourse]): Courses to fill the rest with.
+
+        Returns:
+            list[EnhancedCourse]: At most HERO_COURSE_COUNT courses.
+        """
+        # Skip a curated pick if the learner is already enrolled in it, so the
+        # same course never fills two card slots.
+        seen = {course.course_id for course in courses}
+        for extra in extras:
+            if len(courses) >= HERO_COURSE_COUNT:
+                break
+            if extra.course_id in seen:
+                continue
+            courses.append(extra)
+            seen.add(extra.course_id)
+
+        return courses

@@ -2,9 +2,7 @@
 Defines the URL routes for this app.
 """
 
-from django.conf import settings
-from django.urls import path, re_path
-from django.conf.urls import include
+from django.urls import path
 
 from .views import *
 
@@ -23,4 +21,7 @@ urlpatterns = [
 
     # Endpoint to retrieve the homepage course categories with their courses
     path("api/categories/homepage/", HomepageCategoryListAPIView.as_view(), name="homepage-category-list"),
+
+    # Endpoint to retrieve the courses shown in the homepage hero cards
+    path("api/courses/hero/", HeroCourseListAPIView.as_view(), name="hero-course-list"),
 ]

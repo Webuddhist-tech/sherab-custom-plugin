@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.utils import timezone
+
 from .models import *
 
 
@@ -24,6 +26,26 @@ class EnhancedCourseAdmin(admin.ModelAdmin):
     list_display = ["course", "partner", "center", "category"]
     search_fields = ["course_id"]
     raw_id_fields = ["course", "partner", "center", "category"]
+
+
+class HeroCourseAdmin(admin.ModelAdmin):
+    # Editable inline so rearranging cards or extending a badge is one submit.
+    list_display = ["course", "order", "is_active", "new_until", "badge_showing"]
+    list_editable = ["order", "is_active", "new_until"]
+    list_filter = ["is_active"]
+    # Searches the course title, not just the raw key.
+    search_fields = ["course__id", "course__display_name"]
+    raw_id_fields = ["course"]
+    ordering = ["order", "id"]
+
+    # Shows whether the badge is actually live today. Computed, so it can't be
+    # list_editable or list_filter.
+    @admin.display(boolean=True, description="Badge live")
+    def badge_showing(self, obj):
+        """
+        Returns whether this pick's badge is showing on the site right now.
+        """
+        return bool(obj.new_until and obj.new_until >= timezone.localdate())
 
 
 class PartnerOrganizationMappingAdmin(admin.ModelAdmin):
@@ -63,5 +85,6 @@ admin.site.register(Partner, PartnerAdmin)
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(EnhancedCourse, EnhancedCourseAdmin)
 admin.site.register(Center, CenterAdmin)
+admin.site.register(HeroCourse, HeroCourseAdmin)
 admin.site.register(PartnerOrganizationMapping, PartnerOrganizationMappingAdmin)
 admin.site.register(CourseCreator, CourseCreatorAdmin)
