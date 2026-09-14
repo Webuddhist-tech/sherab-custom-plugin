@@ -14,8 +14,11 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
+from .helpers import get_course_key_or_error, get_course_or_error
 from .models import *
 from .serializers import (
     HeroCourseCardSerializer,
@@ -94,17 +97,28 @@ class CenterDetailView(View):
         return render_to_response("course_partnerships/center-details.html", context)
 
 
-class PublicListAPIView(ListAPIView):
+class PublicAPIViewMixin:
+    """
+    Shared access policy for every public (anonymous-accessible) endpoint in
+    this app, regardless of whether it's list-shaped or not:
+
+    - authentication is skipped entirely rather than attempted and failed;
+    - anonymous access is granted explicitly, so a future change to the
+      platform-wide permission default can't silently lock these down.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+
+class PublicListAPIView(PublicAPIViewMixin, ListAPIView):
     """
     Base class for the public listing endpoints in this app.
 
     These endpoints are read by anonymous clients (the homepage and the mobile
     app) and each is expected to return its whole list as a bare JSON array, so
-    the shared settings live here:
+    on top of PublicAPIViewMixin's access policy:
 
-    - authentication is skipped entirely rather than attempted and failed;
-    - anonymous access is granted explicitly, so a future change to the
-      platform-wide permission default can't silently lock these down;
     - the platform-wide pagination default is disabled, which would otherwise
       cap responses at PAGE_SIZE and wrap them in a
       {count, next, previous, results} envelope that no client here expects;
@@ -112,8 +126,6 @@ class PublicListAPIView(ListAPIView):
       list that a filter backend could not handle.
     """
 
-    authentication_classes = []
-    permission_classes = [AllowAny]
     pagination_class = None
     filter_backends = []
 
@@ -254,6 +266,63 @@ class HomepageCategoryListAPIView(PublicListAPIView):
         # an empty tab. The prefetched lists are already loaded, so filtering
         # in Python costs no extra queries.
         return [category for category in categories if category.visible_courses]
+
+
+class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
+    """
+    API endpoint to retrieve a course's invite-only instructions.
+
+    Public and unauthenticated: a visitor to an invite-only course's about
+    page may well be signed out, and the instructions themselves carry no
+    sensitive information.
+
+    Resolves course_id -> EnhancedCourse -> partner -> invite_instructions,
+    restricted to courses meant to be publicly visible (see get_queryset
+    elsewhere in this file for why — same rule, same reason). A course with
+    no EnhancedCourse row, no partner, or a partner with no instructions set
+    all resolve to a 200 response with a null value rather than an error —
+    the caller decides how to fall back.
+
+    Method:
+        GET
+
+    Example Response (200 OK):
+        {"invite_instructions": "<p>Contact admissions@example.com</p>"}
+        {"invite_instructions": null}
+    """
+
+    def get(self, request, course_id):
+        course_key, error = get_course_key_or_error(course_id)
+        if error:
+            return error
+
+        # Filtered directly rather than resolving a CourseOverview first: the
+        # visibility check only needs a join, not a full CourseOverview fetch
+        # (which get_course_or_error below does, and which can trigger a
+        # modulestore reload) — this way that heavier lookup only runs on the
+        # rarer miss path, to tell "hidden/nonexistent" apart from "no partner
+        # message set" for the right response.
+        enhanced_course = (
+            EnhancedCourse.objects.select_related("partner")
+            .filter(
+                course_id=course_key,
+                course__visible_to_staff_only=False,
+                course__catalog_visibility=CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
+            )
+            .first()
+        )
+
+        if enhanced_course is None:
+            _, error = get_course_or_error(course_id)
+            if error:
+                return error
+            invite_instructions = None
+        elif enhanced_course.partner:
+            invite_instructions = enhanced_course.partner.invite_instructions or None
+        else:
+            invite_instructions = None
+
+        return Response({"invite_instructions": invite_instructions})
 
 
 # Personalized per caller, so it must never be cached — a shared cache could

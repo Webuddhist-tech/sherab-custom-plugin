@@ -52,6 +52,7 @@ class Partner(TimeStampedModel):
         validators=[validate_bannner_extension],
     )
     content = RichTextField("Description", null=True, blank=True)
+    invite_instructions = RichTextField("Invite Instructions", null=True, blank=True)
     activate_school_admin = models.BooleanField(default=False)
 
     def __str__(self):
