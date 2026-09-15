@@ -43,5 +43,13 @@ def get_course_or_error(course_id):
             {"error": _("Course not found: {course_id}").format(course_id=course_id)},
             status=status.HTTP_404_NOT_FOUND,
         )
+    except IOError:
+        # get_from_id also raises this if the course can't be loaded from the
+        # modulestore (e.g. a stale or broken CourseOverview row) — from a
+        # caller's perspective that's indistinguishable from not existing.
+        return None, Response(
+            {"error": _("Course not found: {course_id}").format(course_id=course_id)},
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
     return course, None

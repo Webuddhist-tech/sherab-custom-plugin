@@ -6,11 +6,13 @@ from django.db.models import Count, Exists, OuterRef, Prefetch
 from django.http import Http404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.vary import vary_on_headers
 from django.views.generic import View
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
@@ -18,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
-from .helpers import get_course_key_or_error, get_course_or_error
+from .helpers import get_course_key_or_error
 from .models import *
 from .serializers import (
     HeroCourseCardSerializer,
@@ -278,10 +280,12 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
 
     Resolves course_id -> EnhancedCourse -> partner -> invite_instructions,
     restricted to courses meant to be publicly visible (see get_queryset
-    elsewhere in this file for why — same rule, same reason). A course with
-    no EnhancedCourse row, no partner, or a partner with no instructions set
-    all resolve to a 200 response with a null value rather than an error —
-    the caller decides how to fall back.
+    elsewhere in this file for why — same rule, same reason). A hidden
+    course_id gets the same 404 as one that doesn't exist at all, so this
+    endpoint never reveals that a hidden course exists — a visible course
+    with no EnhancedCourse row, no partner, or a partner with no
+    instructions set all resolve to a 200 response with a null value
+    instead, since the caller decides how to fall back on missing content.
 
     Method:
         GET
@@ -289,6 +293,9 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
     Example Response (200 OK):
         {"invite_instructions": "<p>Contact admissions@example.com</p>"}
         {"invite_instructions": null}
+
+    Example Response (404 Not Found):
+        {"error": "Course not found: ..."}
     """
 
     def get(self, request, course_id):
@@ -298,10 +305,7 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
 
         # Filtered directly rather than resolving a CourseOverview first: the
         # visibility check only needs a join, not a full CourseOverview fetch
-        # (which get_course_or_error below does, and which can trigger a
-        # modulestore reload) — this way that heavier lookup only runs on the
-        # rarer miss path, to tell "hidden/nonexistent" apart from "no partner
-        # message set" for the right response.
+        # — this way that heavier fetch only runs on the rarer miss path.
         enhanced_course = (
             EnhancedCourse.objects.select_related("partner")
             .filter(
@@ -312,17 +316,26 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
             .first()
         )
 
-        if enhanced_course is None:
-            _, error = get_course_or_error(course_id)
-            if error:
-                return error
-            invite_instructions = None
-        elif enhanced_course.partner:
-            invite_instructions = enhanced_course.partner.invite_instructions or None
-        else:
-            invite_instructions = None
+        if enhanced_course is not None:
+            invite_instructions = enhanced_course.partner.invite_instructions if enhanced_course.partner else None
+            return Response({"invite_instructions": invite_instructions})
 
-        return Response({"invite_instructions": invite_instructions})
+        # No matching EnhancedCourse/partner row. Re-check existence with the
+        # same visibility filter (rather than get_course_or_error's plain
+        # existence check) so a hidden course_id 404s exactly like a
+        # nonexistent one, instead of leaking that a hidden course exists.
+        course_is_visible = CourseOverview.objects.filter(
+            id=course_key,
+            visible_to_staff_only=False,
+            catalog_visibility=CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
+        ).exists()
+        if not course_is_visible:
+            return Response(
+                {"error": _("Course not found: {course_id}").format(course_id=course_id)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({"invite_instructions": None})
 
 
 # Personalized per caller, so it must never be cached — a shared cache could

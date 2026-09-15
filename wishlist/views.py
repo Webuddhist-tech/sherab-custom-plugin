@@ -22,6 +22,7 @@ from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbid
 from django.utils.translation import gettext as _
 from django.views.generic import View
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
+from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
@@ -97,7 +98,11 @@ class WishlistStatusView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request):
-        course_ids = [course_id for course_id in request.query_params.get("course_ids", "").split(",") if course_id]
+        course_ids = [
+            course_id.strip()
+            for course_id in request.query_params.get("course_ids", "").split(",")
+            if course_id.strip()
+        ]
 
         if not course_ids:
             return Response({"error": _("course_ids is required.")}, status=status.HTTP_400_BAD_REQUEST)
@@ -108,24 +113,31 @@ class WishlistStatusView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        course_keys = []
+        # Parsed directly rather than through get_course_or_error: a status
+        # check only needs each course_id's key shape, not its CourseOverview
+        # (a Wishlist row can only ever reference a real course), so this
+        # avoids a CourseOverview/modulestore lookup per course_id.
+        course_keys_by_id = {}
         for course_id in course_ids:
-            course, error = get_course_or_error(course_id)
-            # A course_id that doesn't resolve just can't be wishlisted, so it's
-            # reported as False rather than failing the whole batch -- unlike
-            # add/remove, a status check has no side effect worth guarding.
-            if course is None:
+            try:
+                course_keys_by_id[course_id] = CourseKey.from_string(course_id)
+            except InvalidKeyError:
+                # An unresolvable course_id just can't be wishlisted, so it's
+                # reported as False rather than failing the whole batch --
+                # unlike add/remove, a status check has no side effect worth
+                # guarding.
                 continue
-            course_keys.append(course.id)
 
         wishlisted = set(
-            str(course_key)
-            for course_key in Wishlist.objects.filter(
-                user=request.user, course_id__in=course_keys
+            Wishlist.objects.filter(
+                user=request.user, course_id__in=course_keys_by_id.values()
             ).values_list("course_id", flat=True)
         )
 
-        return Response({course_id: course_id in wishlisted for course_id in course_ids})
+        return Response({
+            course_id: course_keys_by_id.get(course_id) in wishlisted
+            for course_id in course_ids
+        })
 
 
 class WishListChangeView(View):
