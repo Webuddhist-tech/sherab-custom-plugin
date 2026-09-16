@@ -24,4 +24,11 @@ urlpatterns = [
 
     # Endpoint to retrieve the courses shown in the homepage hero cards
     path("api/courses/hero/", HeroCourseListAPIView.as_view(), name="hero-course-list"),
+
+    # Endpoint to retrieve a course's invite-only instructions
+    path(
+        "api/courses/<str:course_id>/invite-instructions/",
+        InviteInstructionsAPIView.as_view(),
+        name="course-invite-instructions",
+    ),
 ]

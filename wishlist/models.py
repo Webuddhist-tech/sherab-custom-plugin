@@ -42,9 +42,13 @@ class Wishlist(TimeStampedModel):
     @classmethod
     def is_wishlisted(cls, user, course_id):
         """
-        Create or update course detailss.
+        Return whether `user` has wishlisted `course_id`.
+
+        Used by the legacy Mako course-about page, which renders this
+        unconditionally for every visitor -- so `user` may be an
+        AnonymousUser, which can never have wishlisted anything.
         """
-        try:
-            return cls.objects.get(user=user, course_id=course_id)
-        except Exception as e:
-            return None
+        if not user.is_authenticated:
+            return False
+
+        return cls.objects.filter(user=user, course_id=course_id).exists()
