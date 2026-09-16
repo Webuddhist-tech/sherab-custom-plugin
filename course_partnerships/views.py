@@ -11,7 +11,10 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.vary import vary_on_headers
 from django.views.generic import View
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
+from lms.djangoapps.courseware.access import has_access
+from lms.djangoapps.courseware.courses import get_permission_for_course_about
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from openedx.core.djangolib.markup import clean_dangerous_html
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView
@@ -279,13 +282,28 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
     sensitive information.
 
     Resolves course_id -> EnhancedCourse -> partner -> invite_instructions,
-    restricted to courses meant to be publicly visible (see get_queryset
-    elsewhere in this file for why — same rule, same reason). A hidden
-    course_id gets the same 404 as one that doesn't exist at all, so this
-    endpoint never reveals that a hidden course exists — a visible course
-    with no EnhancedCourse row, no partner, or a partner with no
-    instructions set all resolve to a 200 response with a null value
-    instead, since the caller decides how to fall back on missing content.
+    restricted to courses the caller may see an about page for. That rule is
+    the platform's, not ours: has_access() with the permission from
+    get_permission_for_course_about(), which honours the configurable
+    COURSE_ABOUT_VISIBILITY_PERMISSION (and any per-site override) rather
+    than hardcoding a catalog_visibility value here that would drift from
+    upstream — and, unlike a hardcoded "both", it admits the invite-only
+    courses actually set to "about", which are the ones this endpoint exists
+    to serve. visible_to_staff_only is then checked separately, since the
+    about-page permissions don't consider it (see get() below).
+
+    A course the caller may not see gets the same 404 as one that doesn't
+    exist at all, so this endpoint never reveals that a hidden course
+    exists — a visible course with no EnhancedCourse row, no partner, or a
+    partner with no instructions set all resolve to a 200 response with a
+    null value instead, since the caller decides how to fall back on
+    missing content.
+
+    invite_instructions is authored in a rich-text field, so its HTML is run
+    through clean_dangerous_html() on the way out: the caller renders it
+    unescaped and can't sanitize it itself. This is the same filter the
+    theme applies to the sibling Partner.content field when rendering it
+    from a Mako template (see partner-details.html).
 
     Method:
         GET
@@ -303,39 +321,39 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
         if error:
             return error
 
-        # Filtered directly rather than resolving a CourseOverview first: the
-        # visibility check only needs a join, not a full CourseOverview fetch
-        # — this way that heavier fetch only runs on the rarer miss path.
-        enhanced_course = (
-            EnhancedCourse.objects.select_related("partner")
-            .filter(
-                course_id=course_key,
-                course__visible_to_staff_only=False,
-                course__catalog_visibility=CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
-            )
-            .first()
+        # One response for "no such course" and for "you may not see this
+        # course", so the endpoint can't be probed to discover hidden courses.
+        not_found = Response(
+            {"error": _("Course not found: {course_id}").format(course_id=course_id)},
+            status=status.HTTP_404_NOT_FOUND,
         )
 
-        if enhanced_course is not None:
-            invite_instructions = enhanced_course.partner.invite_instructions if enhanced_course.partner else None
-            return Response({"invite_instructions": invite_instructions})
+        try:
+            course_overview = CourseOverview.get_from_id(course_key)
+        except (CourseOverview.DoesNotExist, IOError):
+            # IOError: a stale or broken CourseOverview row the modulestore
+            # can no longer load — from a caller's perspective that is
+            # indistinguishable from the course not existing.
+            return not_found
 
-        # No matching EnhancedCourse/partner row. Re-check existence with the
-        # same visibility filter (rather than get_course_or_error's plain
-        # existence check) so a hidden course_id 404s exactly like a
-        # nonexistent one, instead of leaking that a hidden course exists.
-        course_is_visible = CourseOverview.objects.filter(
-            id=course_key,
-            visible_to_staff_only=False,
-            catalog_visibility=CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
-        ).exists()
-        if not course_is_visible:
-            return Response(
-                {"error": _("Course not found: {course_id}").format(course_id=course_id)},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if not has_access(request.user, get_permission_for_course_about(), course_overview):
+            return not_found
 
-        return Response({"invite_instructions": None})
+        # Deliberately on top of the permission above, not folded into it. The
+        # about-page permissions ('see_about_page', and 'see_in_catalog') only
+        # look at catalog_visibility — visible_to_staff_only is consulted by
+        # 'see_exists' alone, via can_load(). So with this site's configured
+        # COURSE_ABOUT_VISIBILITY_PERMISSION a staff-only course would hand its
+        # instructions to an anonymous caller. Keep that flag honoured whatever
+        # the setting happens to be.
+        if course_overview.visible_to_staff_only and not has_access(request.user, "staff", course_overview):
+            return not_found
+
+        enhanced_course = EnhancedCourse.objects.select_related("partner").filter(course_id=course_key).first()
+        partner = enhanced_course.partner if enhanced_course else None
+        invite_instructions = partner.invite_instructions if partner else None
+
+        return Response({"invite_instructions": clean_dangerous_html(invite_instructions)})
 
 
 # Personalized per caller, so it must never be cached — a shared cache could
