@@ -17,6 +17,8 @@ class WishlistItemSerializer(serializers.ModelSerializer):
         - title (str): The course's display name
         - image_url (str): Host-relative URL to the course card image
         - org (str): The course's organization
+        - start (datetime): The course's start date
+        - advertised_start (str): The course's human-readable start date
         - created (datetime): When the course was added to the wishlist
     """
 
@@ -24,10 +26,20 @@ class WishlistItemSerializer(serializers.ModelSerializer):
     title = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
     org = serializers.SerializerMethodField()
+    start = serializers.DateTimeField(source="course.start", read_only=True)
+    advertised_start = serializers.CharField(source="course.advertised_start", read_only=True)
 
     class Meta:
         model = Wishlist
-        fields = ["course_id", "title", "image_url", "org", "created"]
+        fields = [
+            "course_id",
+            "title",
+            "image_url",
+            "org",
+            "start",
+            "advertised_start",
+            "created",
+        ]
 
     def get_course_id(self, obj):
         return str(obj.course_id)

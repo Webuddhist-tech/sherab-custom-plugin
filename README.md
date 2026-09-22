@@ -255,8 +255,9 @@ streamlines onboarding.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/wishlist/change-status/` | Add/remove a course (`wishlist_action` = `add` / `remove`). |
-| GET | `/wishlist/` | List the authenticated user's wishlisted courses. |
+| GET / POST | `/api/wishlist/` | List or add wishlist entries. |
+| DELETE | `/api/wishlist/<course_id>/` | Remove a wishlist entry. |
+| GET | `/api/wishlist/status/` | Check wishlist status for course IDs. |
 
 - No settings injected; no active signals.
 
