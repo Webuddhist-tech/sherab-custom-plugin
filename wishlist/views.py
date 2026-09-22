@@ -26,6 +26,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -46,6 +47,12 @@ AUTHENTICATION_CLASSES = (JwtAuthentication, SessionAuthentication)
 MAX_STATUS_COURSE_IDS = 100
 
 
+class WishlistPagination(PageNumberPagination):
+    """Show five saved courses per page, matching the learner dashboard."""
+
+    page_size = 5
+
+
 class WishlistListCreateView(APIView):
     """List the caller's wishlisted courses, or add one."""
 
@@ -58,8 +65,10 @@ class WishlistListCreateView(APIView):
             .select_related("course")
             .order_by("-created")
         )
-        serializer = WishlistItemSerializer(wishlist_items, many=True)
-        return Response(serializer.data)
+        paginator = WishlistPagination()
+        page = paginator.paginate_queryset(wishlist_items, request, view=self)
+        serializer = WishlistItemSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
         course, error = get_course_or_error(request.data.get("course_id"))
