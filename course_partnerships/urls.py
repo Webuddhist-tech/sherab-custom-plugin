@@ -34,4 +34,9 @@ urlpatterns = [
         InviteInstructionsAPIView.as_view(),
         name="course-invite-instructions",
     ),
+    path(
+        "organizations/display-names",
+        OrganizationDisplayNamesView.as_view(),
+        name="organization_display_names",
+    ),
 ]
