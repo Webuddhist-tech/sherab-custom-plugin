@@ -4,6 +4,8 @@ Serializers for the wishlist API responses.
 
 from rest_framework import serializers
 
+from user_extension.organization_display import get_organization_display_name
+
 from .models import Wishlist
 
 
@@ -26,6 +28,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
     title = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
     org = serializers.SerializerMethodField()
+    organization_display_name = serializers.SerializerMethodField()
     start = serializers.DateTimeField(source="course.start", read_only=True)
     advertised_start = serializers.CharField(source="course.advertised_start", read_only=True)
 
@@ -36,6 +39,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
             "title",
             "image_url",
             "org",
+            "organization_display_name",
             "start",
             "advertised_start",
             "created",
@@ -52,3 +56,17 @@ class WishlistItemSerializer(serializers.ModelSerializer):
 
     def get_org(self, obj):
         return obj.course.org
+
+    def get_organization_display_name(self, obj):
+        """Return the learner-facing organization name without changing the raw org."""
+        course = obj.course
+        display_override = (
+            course.display_org_with_default
+            if course.display_org_with_default != course.org
+            else None
+        )
+        return get_organization_display_name(
+            org_slug=course.org,
+            display_organization=display_override,
+            organization_name=self.context.get("organization_names", {}).get(course.org),
+        )

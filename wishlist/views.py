@@ -22,6 +22,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from user_extension.organization_display import get_organization_names
+
 from .helpers import get_course_or_error
 from .models import Wishlist
 from .serializers import WishlistItemSerializer
@@ -53,7 +55,12 @@ class WishlistListCreateView(APIView):
         )
         paginator = WishlistPagination()
         page = paginator.paginate_queryset(wishlist_items, request, view=self)
-        serializer = WishlistItemSerializer(page, many=True)
+        organization_names = get_organization_names(item.course.org for item in page)
+        serializer = WishlistItemSerializer(
+            page,
+            many=True,
+            context={"organization_names": organization_names},
+        )
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
