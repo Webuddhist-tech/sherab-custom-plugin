@@ -1,11 +1,11 @@
-"""Catalog-search additions owned by the Sherab LMS extension."""
+"""Catalog-search additions for learner-facing organization labels."""
 
 from functools import wraps
 
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 
-from user_extension.organization_display import (
+from course_partnerships.organization_display import (
     get_organization_display_name,
     get_organization_names,
 )
@@ -57,7 +57,7 @@ def add_organization_display_names(results):
     return results
 
 
-def install_organization_display_names():
+def register_organization_display_names():
     """Add learner-facing organization labels to edx-search results.
 
     ``edx-search`` deliberately returns raw organization identifiers in its
@@ -66,7 +66,7 @@ def install_organization_display_names():
     """
     from search import views as search_views
 
-    if getattr(search_views, "_sherab_organization_display_names_installed", False):
+    if getattr(search_views, "_sherab_organization_display_names_registered", False):
         return
 
     original_course_discovery_search = search_views.course_discovery_search
@@ -76,4 +76,4 @@ def install_organization_display_names():
         return add_organization_display_names(original_course_discovery_search(*args, **kwargs))
 
     search_views.course_discovery_search = course_discovery_search_with_organization_display_names
-    search_views._sherab_organization_display_names_installed = True
+    search_views._sherab_organization_display_names_registered = True

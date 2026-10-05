@@ -4,7 +4,7 @@ Serializers for the wishlist API responses.
 
 from rest_framework import serializers
 
-from user_extension.organization_display import get_organization_display_name
+from course_partnerships.organization_display import get_organization_display_name
 
 from .models import Wishlist
 

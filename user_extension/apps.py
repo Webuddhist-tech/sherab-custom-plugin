@@ -28,12 +28,7 @@ class UserExtensionConfig(AppConfig):
                 PluginURLs.NAMESPACE: name,
                 PluginURLs.REGEX: "^",
                 PluginURLs.RELATIVE_PATH: "urls",
-            },
-            ProjectType.CMS: {
-                PluginURLs.NAMESPACE: name,
-                PluginURLs.REGEX: "^",
-                PluginURLs.RELATIVE_PATH: "urls",
-            },
+            }
         },
         PluginSettings.CONFIG: {
             ProjectType.LMS: {
@@ -45,13 +40,6 @@ class UserExtensionConfig(AppConfig):
     }
 
     def ready(self):
-        from django.conf import settings
-
-        from .signals import handlers  # pylint: disable=unused-import
-
-        # Course search runs in the LMS. Studio only needs the display-name URL.
-        if getattr(settings, "ROOT_URLCONF", None) == "lms.urls":
-            from .search import install_organization_display_names
-            install_organization_display_names()
+        from .signals import handlers
 
         log.debug("{label} is ready.".format(label=self.label))

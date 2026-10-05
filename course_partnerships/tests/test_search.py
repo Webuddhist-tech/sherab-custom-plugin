@@ -4,14 +4,14 @@ from unittest.mock import Mock, patch
 
 from django.test import RequestFactory, SimpleTestCase
 
-from user_extension.search import install_organization_display_names
-from user_extension.views import OrganizationDisplayNamesView
+from course_partnerships.search import register_organization_display_names
+from course_partnerships.views import OrganizationDisplayNamesView
 
 
 class OrganizationDisplayNamesSearchTest(SimpleTestCase):
     """Ensure the search extension preserves raw filter values."""
 
-    @patch("user_extension.search.get_organization_names")
+    @patch("course_partnerships.search.get_organization_names")
     @patch("search.views.course_discovery_search")
     def test_adds_display_names_without_changing_aggregation_terms(self, search, get_organization_names):
         search.return_value = {
@@ -25,8 +25,8 @@ class OrganizationDisplayNamesSearchTest(SimpleTestCase):
             "Khyentse_Foundation": "Khyentse Foundation",
         }
 
-        with patch("search.views._sherab_organization_display_names_installed", False, create=True):
-            install_organization_display_names()
+        with patch("search.views._sherab_organization_display_names_registered", False, create=True):
+            register_organization_display_names()
 
             from search import views as search_views
             results = search_views.course_discovery_search()
@@ -39,7 +39,7 @@ class OrganizationDisplayNamesSearchTest(SimpleTestCase):
         get_organization_names.assert_called_once_with({"Khyentse_Foundation"})
 
     @patch("openedx.core.djangoapps.content.course_overviews.models.CourseOverview")
-    @patch("user_extension.search.get_organization_names")
+    @patch("course_partnerships.search.get_organization_names")
     @patch("search.views.course_discovery_search")
     def test_adds_per_course_display_name(self, search, get_organization_names, course_overview):
         course_id = "course-v1:Khyentse_Foundation+Demo+2026"
@@ -58,8 +58,8 @@ class OrganizationDisplayNamesSearchTest(SimpleTestCase):
         overridden.id = overridden_id
         course_overview.objects.filter.return_value = [named, overridden]
 
-        with patch("search.views._sherab_organization_display_names_installed", False, create=True):
-            install_organization_display_names()
+        with patch("search.views._sherab_organization_display_names_registered", False, create=True):
+            register_organization_display_names()
             from search import views as search_views
             results = search_views.course_discovery_search()
 
@@ -77,7 +77,7 @@ class OrganizationDisplayNamesSearchTest(SimpleTestCase):
 class OrganizationDisplayNamesViewTest(SimpleTestCase):
     """Studio receives full names keyed by the short name it already stores."""
 
-    @patch("user_extension.views.get_organizations")
+    @patch("course_partnerships.views.get_organizations")
     def test_returns_names_by_short_name(self, get_organizations):
         get_organizations.return_value = [
             {"short_name": "Khyentse_Foundation", "name": "Khyentse Foundation"},

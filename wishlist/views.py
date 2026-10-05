@@ -22,7 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from user_extension.organization_display import get_organization_names
+from course_partnerships.organization_display import get_organization_names
 
 from .helpers import get_course_or_error
 from .models import Wishlist
