@@ -11,6 +11,16 @@ from course_partnerships.organization_display import (
 )
 
 
+def _course_key_string(row):
+    """Return the course id carried on a catalog search hit.
+
+    edx-search puts the indexed course id on ``data.id``. Some responses also
+    copy it to ``id``; Elasticsearch's own document id is ``_id``.
+    """
+    data = row.get("data") or {}
+    return data.get("id") or row.get("id") or row.get("_id")
+
+
 def add_organization_display_names(results):
     """Attach learner-facing organization labels without changing filter values."""
     rows = results.get("results") or []
@@ -30,7 +40,7 @@ def add_organization_display_names(results):
 
     course_ids = []
     for row in rows:
-        raw_id = row.get("id")
+        raw_id = _course_key_string(row)
         if not raw_id:
             continue
         try:
@@ -43,7 +53,7 @@ def add_organization_display_names(results):
     }
     for row in rows:
         data = row.setdefault("data", {})
-        overview = overviews.get(row.get("id"))
+        overview = overviews.get(str(_course_key_string(row)))
         display_override = (
             overview.display_org_with_default
             if overview and overview.display_org_with_default != overview.org

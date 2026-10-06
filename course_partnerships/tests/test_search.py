@@ -73,6 +73,30 @@ class OrganizationDisplayNamesSearchTest(SimpleTestCase):
         )
         self.assertEqual(results["aggs"]["org"]["terms"], {"Khyentse_Foundation": 2})
 
+    @patch("openedx.core.djangoapps.content.course_overviews.models.CourseOverview")
+    @patch("course_partnerships.search.get_organization_names")
+    @patch("search.views.course_discovery_search")
+    def test_uses_data_id_when_the_hit_has_no_top_level_id(self, search, get_organization_names, course_overview):
+        course_id = "course-v1:Khyentse_Foundation+TSP-SK1+2024_04"
+        search.return_value = {
+            "aggs": {"org": {"terms": {"Khyentse_Foundation": 1}}},
+            "results": [
+                {"_id": course_id, "data": {"id": course_id, "org": "Khyentse_Foundation"}},
+            ],
+        }
+        get_organization_names.return_value = {"Khyentse_Foundation": "Khyentse Foundation"}
+        overview = Mock(org="Khyentse_Foundation", display_org_with_default="Kumarajiva")
+        overview.id = course_id
+        course_overview.objects.filter.return_value = [overview]
+
+        with patch("search.views._sherab_organization_display_names_registered", False, create=True):
+            register_organization_display_names()
+            from search import views as search_views
+            results = search_views.course_discovery_search()
+
+        self.assertEqual(results["aggs"]["org"]["terms"], {"Khyentse_Foundation": 1})
+        self.assertEqual(results["results"][0]["data"]["organization_display_name"], "Kumarajiva")
+
 
 class OrganizationDisplayNamesViewTest(SimpleTestCase):
     """Studio receives full names keyed by the short name it already stores."""
