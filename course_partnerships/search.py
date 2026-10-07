@@ -4,6 +4,7 @@ from functools import wraps
 
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
+from search import views as search_views
 
 from course_partnerships.organization_display import (
     get_organization_display_name,
@@ -74,8 +75,6 @@ def register_organization_display_names():
     aggregations because those values are used for filtering.  This wrapper
     preserves that behavior and adds a separate display-name map for clients.
     """
-    from search import views as search_views
-
     if getattr(search_views, "_sherab_organization_display_names_registered", False):
         return
 
