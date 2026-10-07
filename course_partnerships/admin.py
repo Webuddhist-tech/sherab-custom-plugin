@@ -81,7 +81,20 @@ class CourseCreatorAdmin(admin.ModelAdmin):
     )
 
 
+class HomepageAnnouncementAdmin(admin.ModelAdmin):
+    list_display = ["message_preview", "tone", "enabled", "start_at", "end_at"]
+    list_display_links = ["message_preview"]
+    list_editable = ["enabled"]
+    list_filter = ["tone", "enabled"]
+    ordering = ["-id"]
+
+    @admin.display(description="Message")
+    def message_preview(self, obj):
+        return str(obj)
+
+
 admin.site.register(Partner, PartnerAdmin)
+admin.site.register(HomepageAnnouncement, HomepageAnnouncementAdmin)
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(EnhancedCourse, EnhancedCourseAdmin)
 admin.site.register(Center, CenterAdmin)
