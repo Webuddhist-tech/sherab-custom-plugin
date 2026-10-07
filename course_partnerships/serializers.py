@@ -1,3 +1,4 @@
+from openedx.core.djangolib.markup import clean_dangerous_html
 from rest_framework import serializers
 
 from course_partnerships.models import Category, EnhancedCourse, Partner, PartnerOrganizationMapping
@@ -278,3 +279,49 @@ class HomepageCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ["id", "name", "courses"]
+
+
+class DonationCardSerializer(serializers.ModelSerializer):
+    """
+    Serializer for a school's donation card on the course home page.
+
+    Blank heading and button text are returned as empty strings; the client
+    supplies its own translated defaults for them.
+
+    Serializes:
+        - enabled (bool): Always true; the view returns {"enabled": false} itself
+        - show_heading (bool): Whether the card shows a heading at all
+        - heading (str): Card heading, or "" for the default
+        - message_html (str or None): Sanitized rich-text message
+        - button_label (str): Button text, or "" for the default
+        - url (str): The school's external donation page
+        - partner_name (str): The school's name
+    """
+
+    enabled = serializers.SerializerMethodField()
+    show_heading = serializers.BooleanField(source="donation_show_heading")
+    heading = serializers.CharField(source="donation_heading")
+    message_html = serializers.SerializerMethodField()
+    button_label = serializers.CharField(source="donation_button_label")
+    url = serializers.CharField(source="donation_url")
+    partner_name = serializers.CharField(source="name")
+
+    class Meta:
+        model = Partner
+        fields = [
+            "enabled",
+            "show_heading",
+            "heading",
+            "message_html",
+            "button_label",
+            "url",
+            "partner_name",
+        ]
+
+    def get_enabled(self, obj):  # pylint: disable=unused-argument
+        return True
+
+    def get_message_html(self, obj):
+        # The client renders this unescaped, so it is sanitized here.
+        message = clean_dangerous_html(obj.donation_message)
+        return str(message) if message else None

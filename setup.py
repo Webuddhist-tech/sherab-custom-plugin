@@ -51,7 +51,12 @@ setup(
     name="custom-extensions",
     version=__version__,
     packages=find_packages(),
-    package_data={"": ["*.html", "*.md", "skill/*.md", "skill/references/*.md"]},  # Mako templates + bundled skill prompt.
+    package_data={
+        # Mako templates + bundled skill prompt.
+        "": ["*.html", "*.md", "skill/*.md", "skill/references/*.md"],
+        # Django admin template overrides.
+        "course_partnerships": ["templates/admin/course_partnerships/*/*.html"],
+    },
     include_package_data=True,
     license="Proprietary",
     description="Django plugin to enhance advanced/extra features.",

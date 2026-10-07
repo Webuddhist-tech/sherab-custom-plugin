@@ -31,4 +31,14 @@ urlpatterns = [
         InviteInstructionsAPIView.as_view(),
         name="course-invite-instructions",
     ),
+
+    # Endpoint to retrieve the school's donation card for a course's home page
+    path("api/courses/<str:course_id>/donation/", DonationCardAPIView.as_view(), name="course-donation"),
+
+    # Endpoint to record a click on a course's donation button
+    path(
+        "api/courses/<str:course_id>/donation/click/",
+        DonationClickAPIView.as_view(),
+        name="course-donation-click",
+    ),
 ]

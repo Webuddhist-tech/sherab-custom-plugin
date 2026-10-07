@@ -187,7 +187,9 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 ### Models
 
 - `Partner` — schools / partner organizations (logo, banner, rich-text description;
-  can activate school-admin features).
+  can activate school-admin features). Also holds the school's **donation card**
+  settings: on/off, heading (can be hidden), rich-text message (at most 500 visible characters),
+  button text, an `https://` donation page URL, and courses excluded from the card.
 - `Center` — sub-entities under a `Partner` (logo, banner, description).
 - `Category` — course categories, optionally tied to a partner; can be shown on the homepage.
 - `EnhancedCourse` — links a `CourseOverview` to its `Partner` / `Center` / `Category`.
@@ -197,6 +199,9 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 - `HeroCourse` — courses curated for the homepage hero cards (see `/api/courses/hero/`
   below). `order`: display position. `is_active`: whether it's used as a curated pick.
   `new_until`: shows a "New course" badge until this date, independent of `is_active`.
+- `DonationClick` — one row per click on a donation button (school, course, learner,
+  time). Kept forever; reported in Django admin under **Donation clicks**, with
+  total clicks and unique learners per school and course, and CSV export.
 
 ### API endpoints
 
@@ -208,6 +213,9 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 | GET | `/api/partners/homepage/` | All partners, for the homepage schools-and-partners carousel. |
 | GET | `/api/categories/homepage/` | Homepage course categories, each with its visible courses. |
 | GET | `/api/courses/hero/` | Courses for the homepage hero cards. Personalized: a signed-in caller gets their most recent enrollments, newest first, with curated `HeroCourse` picks filling any leftover slot; a signed-out caller gets the curated picks alone. Each card also reports `is_new` (true while the course's `HeroCourse.new_until` date has not passed) and `is_enrolled` (true for a card sourced from the caller's own enrollments, false for a curated pick they have not joined). |
+| GET | `/api/courses/<course_id>/invite-instructions/` | Public. The course's school's invite-only instructions, sanitized HTML. |
+| GET | `/api/courses/<course_id>/donation/` | Signed-in. The donation card for the learning MFE course home page: whether to show the heading, heading, sanitized message, button text, URL and school name. `{"enabled": false}` unless the learner is actively enrolled, the course hasn't ended, and the course's school has the card on and hasn't excluded the course. |
+| POST | `/api/courses/<course_id>/donation/click/` | Signed-in. Records a donation button click (201), only when the caller would see the card (404 otherwise). At most 30 per learner per minute (429 beyond that). |
 
 ### Management commands
 
@@ -222,6 +230,10 @@ courses. Provides partner/center detail pages and a mobile-app JSON API.
 
 - **Signals:** on course publish, creates/updates the `EnhancedCourse` row and
   auto-assigns a partner from the org mapping; on course delete, removes it.
+- **Which school owns a course** is decided in one place, `helpers.get_course_partner()`:
+  the course's own `EnhancedCourse.partner`, else the first active organization link
+  that maps to a school. The publish signal, `assign_course_partners`, the donation card
+  and the admin's excluded-courses picker all use it.
 - `settings/common.py` adds `ckeditor` to `INSTALLED_APPS` for the rich-text fields.
 - Asset storage backends are read from Django config (`PARTNER_LOGO_BACKEND`,
   `CENTER_LOGO_BACKEND`, `COURSE_CREATOR_STORAGE_BACKEND`), wired via the
@@ -271,6 +283,14 @@ streamlines onboarding.
   ```bash
   ./manage.py cms makemigrations ai_course_creator
   ./manage.py cms migrate ai_course_creator
+  ```
+
+- **Tests** (`course_partnerships/tests/`), run inside the LMS container with the
+  LMS test settings:
+
+  ```bash
+  tutor dev exec lms bash -c "cd /openedx/edx-platform && pytest -c setup.cfg --ds=lms.envs.test \
+    --rootdir=/openedx/edx-platform -p no:cacheprovider /mnt/sherab-custom-plugin/course_partnerships/tests"
   ```
 
 - **Dev mount:** with the plugin in `MOUNTS`, code changes are live; the CMS still

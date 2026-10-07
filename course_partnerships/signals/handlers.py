@@ -7,9 +7,8 @@ import logging
 from django.dispatch import receiver
 from django.db.models.signals import post_save
 from xmodule.modulestore.django import SignalHandler
-from organizations.models import OrganizationCourse
-from ..models import PartnerOrganizationMapping
 
+from ..helpers import get_course_partner
 from ..models import EnhancedCourse
 
 log = logging.getLogger(__name__)
@@ -25,14 +24,11 @@ def course_publish_signal_handler(sender, course_key, **kwargs):
     # Try to auto-assign partner based on organization
     if not course.partner:
         try:
-            # Get organization for this course
-            org_course = OrganizationCourse.objects.filter(course_id=str(course_key)).first()
-            if org_course:
-                # Find partner mapping for this organization
-                mapping = PartnerOrganizationMapping.objects.filter(organization=org_course.organization).first()
-                if mapping:
-                    course.partner = mapping.partner
-                    course.save()
+            # The course has no partner yet, so this resolves it through its organization.
+            partner = get_course_partner(course_key)
+            if partner:
+                course.partner = partner
+                course.save()
         except Exception as e:  # pylint: disable=broad-exception-caught
             log.warning("Could not auto-assign partner to course %s: %s", course_key, e)
 

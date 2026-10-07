@@ -9,15 +9,25 @@ file and check it in at the same time as your model changes. To do that,
 3. ./manage.py lms migrate --settings=production
 """
 
+import html
+
 from ckeditor.fields import RichTextField
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.html import strip_tags
+from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel
+from opaque_keys.edx.django.models import CourseKeyField
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from organizations.models import Organization
 
-from .validators import validate_bannner_extension
+from .validators import validate_bannner_extension, validate_https_url
 from .storage import PartnerLogoStorage, CenterLogoStorage, CourseCreatorStorage
+
+# Visible characters allowed in Partner.donation_message (markup excluded).
+DONATION_MESSAGE_MAX_LENGTH = 500
 
 
 class Partner(TimeStampedModel):
@@ -55,8 +65,70 @@ class Partner(TimeStampedModel):
     invite_instructions = RichTextField("Invite Instructions", null=True, blank=True)
     activate_school_admin = models.BooleanField(default=False)
 
+    # Donation card on the learning MFE course home page. It links out to the
+    # school's own donation page; no payment is handled on the platform.
+    donation_enabled = models.BooleanField(
+        "Show donation card",
+        default=False,
+        help_text=_("Show a donation card on the course home page of this school's courses."),
+    )
+    donation_show_heading = models.BooleanField(
+        "Show donation heading",
+        default=True,
+        help_text=_("Uncheck to show the card without a heading, starting with the message."),
+    )
+    donation_heading = models.CharField(
+        "Donation heading",
+        max_length=255,
+        blank=True,
+        help_text=_('Leave blank to use "Support <school name>".'),
+    )
+    donation_message = RichTextField(
+        "Donation message",
+        null=True,
+        blank=True,
+        help_text=format_lazy(
+            _("At most {max_length} characters of visible text."), max_length=DONATION_MESSAGE_MAX_LENGTH
+        ),
+    )
+    donation_button_label = models.CharField(
+        "Donation button text",
+        max_length=50,
+        blank=True,
+        help_text=_('Leave blank to use "Donate".'),
+    )
+    donation_url = models.URLField(
+        "Donation page URL",
+        max_length=500,
+        blank=True,
+        validators=[validate_https_url],
+        help_text=_("The school's own donation page. Must start with https://."),
+    )
+    donation_excluded_courses = models.ManyToManyField(
+        CourseOverview,
+        blank=True,
+        db_constraint=False,
+        related_name="donation_excluding_partners",
+        verbose_name="Courses without donation card",
+        help_text=_("This school's courses that should not show the donation card."),
+    )
+
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.donation_enabled and not self.donation_url:
+            errors["donation_url"] = _("A donation page URL is required when the donation card is shown.")
+        # Count only what learners see, so formatting markup doesn't use up the limit.
+        visible_message = strip_tags(self.donation_message or "")
+        if len(html.unescape(visible_message)) > DONATION_MESSAGE_MAX_LENGTH:
+            errors["donation_message"] = _(
+                "The message can be at most {max_length} characters of visible text."
+            ).format(max_length=DONATION_MESSAGE_MAX_LENGTH)
+        if errors:
+            raise ValidationError(errors)
 
     class Meta:
         app_label = "course_partnerships"
@@ -303,3 +375,37 @@ class CourseCreator(TimeStampedModel):
     class Meta:
         verbose_name = "Course Creator"
         verbose_name_plural = "Course Creators"
+
+
+class DonationClick(TimeStampedModel):
+    """
+    One click on a school's donation button, on a course home page.
+
+    Every click is kept, so reports can show both total clicks and unique
+    learners. The course is stored as a key rather than a foreign key, and the
+    partner and user are nulled rather than deleted, so the history outlives
+    deleted courses, schools and retired accounts.
+    """
+
+    partner = models.ForeignKey(
+        Partner,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="donation_clicks",
+    )
+    course_id = CourseKeyField(max_length=255, db_index=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    def __str__(self):
+        return f"{self.partner} - {self.course_id} - {self.created:%Y-%m-%d %H:%M}"
+
+    class Meta:
+        app_label = "course_partnerships"
+        verbose_name = "Donation click"
+        verbose_name_plural = "Donation clicks"
+        indexes = [models.Index(fields=["partner", "created"])]

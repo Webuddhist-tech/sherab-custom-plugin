@@ -18,14 +18,16 @@ from openedx.core.djangolib.markup import clean_dangerous_html
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
-from .helpers import get_course_key_or_error
+from .helpers import course_not_found, get_course_overview_or_error, get_donation_partner
 from .models import *
 from .serializers import (
+    DonationCardSerializer,
     HeroCourseCardSerializer,
     HomepageCategorySerializer,
     PartnerOrganizationMappingSerializer,
@@ -317,24 +319,13 @@ class InviteInstructionsAPIView(PublicAPIViewMixin, APIView):
     """
 
     def get(self, request, course_id):
-        course_key, error = get_course_key_or_error(course_id)
+        course_overview, error = get_course_overview_or_error(course_id)
         if error:
             return error
 
-        # One response for "no such course" and for "you may not see this
-        # course", so the endpoint can't be probed to discover hidden courses.
-        not_found = Response(
-            {"error": _("Course not found: {course_id}").format(course_id=course_id)},
-            status=status.HTTP_404_NOT_FOUND,
-        )
-
-        try:
-            course_overview = CourseOverview.get_from_id(course_key)
-        except (CourseOverview.DoesNotExist, IOError):
-            # IOError: a stale or broken CourseOverview row the modulestore
-            # can no longer load — from a caller's perspective that is
-            # indistinguishable from the course not existing.
-            return not_found
+        # The same response as for "no such course", so the endpoint can't be
+        # probed to discover hidden courses.
+        not_found = course_not_found(course_id)
 
         if not has_access(request.user, get_permission_for_course_about(), course_overview):
             return not_found
@@ -545,3 +536,101 @@ class HeroCourseListAPIView(ListAPIView):
             seen.add(extra.course_id)
 
         return courses
+
+
+class DonationAPIViewMixin:
+    """
+    Shared auth for the donation card endpoints.
+
+    Both endpoints are called by the learning MFE for the signed-in learner.
+    """
+
+    authentication_classes = (JwtAuthentication, SessionAuthentication)
+    permission_classes = (IsAuthenticated,)
+
+
+class DonationClickThrottle(UserRateThrottle):
+    """
+    Caps recorded donation clicks per learner, so a script or a client stuck
+    retrying can't inflate a school's click report.
+    """
+
+    scope = "donation_click"
+    rate = "30/minute"
+
+
+@method_decorator(never_cache, name="dispatch")
+class DonationCardAPIView(DonationAPIViewMixin, APIView):
+    """
+    API endpoint for the donation card on a course's home page.
+
+    The card belongs to the course's school (Partner) and links to the
+    school's own donation page. It is shown only to learners actively
+    enrolled in a course that hasn't ended, when the school has turned the
+    card on and hasn't excluded the course (see get_donation_partner).
+
+    "No card" is a normal answer, so it is a 200 with enabled set to false
+    rather than an error.
+
+    Method:
+        GET
+
+    Example Response (200 OK):
+        {
+            "enabled": true,
+            "show_heading": true,
+            "heading": "Support Sera Jey Monastery",
+            "message_html": "<p>Your donation helps us offer these teachings <b>freely to all</b>.</p>",
+            "button_label": "Donate now",
+            "url": "https://example.org/donate",
+            "partner_name": "Sera Jey Monastery"
+        }
+        {"enabled": false}
+    """
+
+    def get(self, request, course_id):
+        course_overview, error = get_course_overview_or_error(course_id)
+        if error:
+            return error
+
+        partner = get_donation_partner(request.user, course_overview)
+        if not partner:
+            return Response({"enabled": False})
+
+        return Response(DonationCardSerializer(partner, context={"request": request}).data)
+
+
+class DonationClickAPIView(DonationAPIViewMixin, APIView):
+    """
+    API endpoint recording a click on a course's donation button.
+
+    Every click is stored, for the donation click report in Django admin.
+    Accepted only when the caller would currently see the card, and at most
+    DonationClickThrottle.rate per learner (429 beyond that).
+
+    Method:
+        POST
+
+    Example Response (201 Created):
+        {}
+
+    Example Response (404 Not Found):
+        {"error": "No donation card for this course."}
+    """
+
+    throttle_classes = (DonationClickThrottle,)
+
+    def post(self, request, course_id):
+        course_overview, error = get_course_overview_or_error(course_id)
+        if error:
+            return error
+
+        partner = get_donation_partner(request.user, course_overview)
+        if not partner:
+            return Response(
+                {"error": _("No donation card for this course.")},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        DonationClick.objects.create(partner=partner, course_id=course_overview.id, user=request.user)
+        return Response({}, status=status.HTTP_201_CREATED)

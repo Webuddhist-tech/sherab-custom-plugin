@@ -1,0 +1,30 @@
+{% extends "admin/change_list.html" %}
+
+{% block result_list %}
+  <h2>Summary</h2>
+  <p class="help">Totals for the clicks matching the current filters.</p>
+  <table style="margin-bottom: 2em;">
+    <thead>
+      <tr>
+        <th>School</th>
+        <th>Course</th>
+        <th>Total clicks</th>
+        <th>Unique learners</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in donation_summary %}
+        <tr>
+          <td>{{ row.partner__name|default:"(deleted school)" }}</td>
+          <td>{{ row.course_id }}</td>
+          <td>{{ row.total_clicks }}</td>
+          <td>{{ row.unique_learners }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No clicks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h2>All clicks</h2>
+  {{ block.super }}
+{% endblock %}

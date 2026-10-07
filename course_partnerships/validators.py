@@ -13,6 +13,14 @@ def validate_bannner_extension(value):
         raise ValidationError("Unsupported file extension.")
 
 
+def validate_https_url(value):
+    """
+    Validate that a URL uses https, so learners are only sent to secure pages
+    """
+    if not value.lower().startswith("https://"):
+        raise ValidationError("The URL must start with https://.")
+
+
 def validate_video_extension(value):
     """
     Validate video file with .mp4 extensions
