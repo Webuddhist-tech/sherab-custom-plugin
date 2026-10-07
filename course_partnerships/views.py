@@ -27,6 +27,7 @@ from .helpers import get_course_key_or_error
 from .models import *
 from .serializers import (
     HeroCourseCardSerializer,
+    HomepageAnnouncementSerializer,
     HomepageCategorySerializer,
     PartnerOrganizationMappingSerializer,
     PartnerSerializer,
@@ -191,6 +192,35 @@ class PartnerHomepageListAPIView(PublicListAPIView):
     # the database return rows in any order, which can reshuffle the logos
     # between requests.
     queryset = Partner.objects.order_by("name")
+
+
+class HomepageAnnouncementAPIView(PublicAPIViewMixin, APIView):
+    """
+    The notice shown above the Catalog homepage hero.
+
+    Returns the newest saved row that is enabled and inside its time window.
+    A blank start shows immediately. A blank end does not expire. When no row
+    qualifies, the response is 204 so the homepage renders no banner.
+
+    Method:
+        GET
+
+    Example Response (200 OK):
+        {"message": "Registration for the new term is now open."}
+    """
+
+    def get(self, request):
+        now = timezone.now()
+        announcement = None
+        for row in HomepageAnnouncement.objects.filter(enabled=True).order_by("-id"):
+            if homepage_announcement_is_active(row.enabled, row.start_at, row.end_at, now) and row.message.strip():
+                announcement = row
+                break
+
+        if announcement is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        return Response(HomepageAnnouncementSerializer(announcement).data)
 
 
 class HomepageCategoryListAPIView(PublicListAPIView):

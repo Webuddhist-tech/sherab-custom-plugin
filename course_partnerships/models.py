@@ -10,6 +10,7 @@ file and check it in at the same time as your model changes. To do that,
 """
 
 from ckeditor.fields import RichTextField
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel
@@ -303,3 +304,61 @@ class CourseCreator(TimeStampedModel):
     class Meta:
         verbose_name = "Course Creator"
         verbose_name_plural = "Course Creators"
+
+
+def homepage_announcement_is_active(enabled, start_at, end_at, now):
+    """
+    Return whether a homepage announcement should be shown at `now`.
+
+    A blank start shows as soon as the row is enabled. A blank end never
+    expires on its own. The end instant itself is hidden, so a banner set
+    to end at noon is gone at noon.
+    """
+    if not enabled:
+        return False
+    if start_at is not None and start_at > now:
+        return False
+    if end_at is not None and end_at <= now:
+        return False
+    return True
+
+
+class HomepageAnnouncement(models.Model):
+    """
+    One admin-written notice shown above the Catalog homepage hero.
+
+    Several rows can exist. The public API shows the newest row that
+    homepage_announcement_is_active accepts, and nothing when none do.
+    """
+
+    message = models.TextField(
+        help_text=_("Plain text shown in the banner. A URL is shown as text."),
+    )
+    enabled = models.BooleanField(
+        default=False,
+        help_text=_("Uncheck to hide the banner immediately, even inside the time window."),
+    )
+    start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Leave blank to show as soon as the banner is enabled."),
+    )
+    end_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Leave blank to keep showing until the banner is disabled. Hidden once this time is reached."),
+    )
+
+    class Meta:
+        app_label = "course_partnerships"
+        verbose_name = "Homepage Announcement"
+        verbose_name_plural = "Homepage Announcements"
+        ordering = ["-id"]
+
+    def __str__(self):
+        text = self.message.strip()
+        return text if len(text) <= 80 else f"{text[:77]}..."
+
+    def clean(self):
+        if self.start_at and self.end_at and self.end_at <= self.start_at:
+            raise ValidationError({"end_at": _("End must be after start.")})
