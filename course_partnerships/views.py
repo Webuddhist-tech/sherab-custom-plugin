@@ -3,7 +3,8 @@ import logging
 from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.student.models import CourseEnrollment
 from django.db.models import Count, Exists, OuterRef, Prefetch
-from django.http import Http404
+from django.contrib.auth.decorators import login_required
+from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
@@ -21,6 +22,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from organizations.api import get_organizations
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
 from .helpers import get_course_key_or_error
@@ -575,3 +577,16 @@ class HeroCourseListAPIView(ListAPIView):
             seen.add(extra.course_id)
 
         return courses
+
+
+class OrganizationDisplayNamesView(View):
+    """Return full organization names keyed by their short names."""
+
+    @method_decorator(login_required)
+    def get(self, request, *args, **kwargs):  # pylint: disable=unused-argument
+        """Return the labels used when displaying organization identifiers in Studio."""
+        return JsonResponse({
+            organization["short_name"]: organization["name"]
+            for organization in get_organizations()
+            if organization.get("name")
+        })
