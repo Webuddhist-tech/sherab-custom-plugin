@@ -33,3 +33,7 @@ class HomepageAnnouncementActiveTest(SimpleTestCase):
         announcement = HomepageAnnouncement(message="Notice", enabled=True, start_at=LATER, end_at=EARLIER)
         with self.assertRaises(ValidationError):
             announcement.clean()
+
+    def test_tone_defaults_to_info(self):
+        announcement = HomepageAnnouncement(message="Notice")
+        self.assertEqual(announcement.tone, "info")

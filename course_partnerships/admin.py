@@ -82,10 +82,10 @@ class CourseCreatorAdmin(admin.ModelAdmin):
 
 
 class HomepageAnnouncementAdmin(admin.ModelAdmin):
-    list_display = ["message_preview", "enabled", "start_at", "end_at"]
+    list_display = ["message_preview", "tone", "enabled", "start_at", "end_at"]
     list_display_links = ["message_preview"]
     list_editable = ["enabled"]
-    list_filter = ["enabled"]
+    list_filter = ["tone", "enabled"]
     ordering = ["-id"]
 
     @admin.display(description="Message")

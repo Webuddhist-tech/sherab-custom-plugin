@@ -208,7 +208,7 @@ class HomepageAnnouncementAPIView(PublicAPIViewMixin, APIView):
         GET
 
     Example Response (200 OK):
-        {"message": "Registration for the new term is now open."}
+        {"message": "Registration for the new term is now open.", "tone": "info"}
     """
 
     def get(self, request):

@@ -290,10 +290,10 @@ class HomepageAnnouncementSerializer(serializers.ModelSerializer):
     """
     The homepage banner payload.
 
-    Only the message is sent. enabled, start_at, and end_at stay on the
-    server, where the view decides whether the banner is visible.
+    The message and its tone are sent. enabled, start_at, and end_at stay
+    on the server, where the view decides whether the banner is visible.
     """
 
     class Meta:
         model = HomepageAnnouncement
-        fields = ["message"]
+        fields = ["message", "tone"]

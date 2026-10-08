@@ -306,6 +306,19 @@ class CourseCreator(TimeStampedModel):
         verbose_name_plural = "Course Creators"
 
 
+HOMEPAGE_ANNOUNCEMENT_TONE_INFO = "info"
+HOMEPAGE_ANNOUNCEMENT_TONE_SUCCESS = "success"
+HOMEPAGE_ANNOUNCEMENT_TONE_WARNING = "warning"
+HOMEPAGE_ANNOUNCEMENT_TONE_ALERT = "alert"
+
+HOMEPAGE_ANNOUNCEMENT_TONE_CHOICES = [
+    (HOMEPAGE_ANNOUNCEMENT_TONE_INFO, _("Info")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_SUCCESS, _("Success")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_WARNING, _("Warning")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_ALERT, _("Alert")),
+]
+
+
 def homepage_announcement_is_active(enabled, start_at, end_at, now):
     """
     Return whether a homepage announcement should be shown at `now`.
@@ -333,6 +346,14 @@ class HomepageAnnouncement(models.Model):
 
     message = models.TextField(
         help_text=_("Plain text shown in the banner. A URL is shown as text."),
+    )
+    tone = models.CharField(
+        max_length=16,
+        choices=HOMEPAGE_ANNOUNCEMENT_TONE_CHOICES,
+        default=HOMEPAGE_ANNOUNCEMENT_TONE_INFO,
+        help_text=_(
+            "Info is a calm reminder, Success is positive, Warning is caution, and Alert is urgent."
+        ),
     )
     enabled = models.BooleanField(
         default=False,
