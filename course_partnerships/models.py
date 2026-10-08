@@ -9,6 +9,8 @@ file and check it in at the same time as your model changes. To do that,
 3. ./manage.py lms migrate --settings=production
 """
 
+import uuid
+
 from ckeditor.fields import RichTextField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -317,6 +319,34 @@ HOMEPAGE_ANNOUNCEMENT_TONE_CHOICES = [
     (HOMEPAGE_ANNOUNCEMENT_TONE_WARNING, _("Warning")),
     (HOMEPAGE_ANNOUNCEMENT_TONE_ALERT, _("Alert")),
 ]
+
+
+# Stored inside the Django login session. It is not the session key.
+HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY = "homepage_announcement_dismissal_id"
+
+
+def homepage_announcement_dismissal_session_id(request):
+    """
+    Return this login's banner id, creating it the first time.
+
+    Signed-out callers get None. The value is random and is not the Django
+    session key. Logout clears the session, so the next login gets a new id
+    and a closed banner shows again.
+    """
+    user = getattr(request, "user", None)
+    session = getattr(request, "session", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    if session is None or not getattr(session, "session_key", None):
+        return None
+    if not session.get("_auth_user_id"):
+        return None
+
+    dismissal_id = session.get(HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY)
+    if not dismissal_id:
+        dismissal_id = uuid.uuid4().hex
+        session[HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY] = dismissal_id
+    return dismissal_id
 
 
 def homepage_announcement_is_active(enabled, start_at, end_at, now):

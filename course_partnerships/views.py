@@ -196,7 +196,11 @@ class PartnerHomepageListAPIView(PublicListAPIView):
     queryset = Partner.objects.order_by("name")
 
 
-class HomepageAnnouncementAPIView(PublicAPIViewMixin, APIView):
+# Personalized for a signed-in caller: the dismissal id lives in that login's
+# session. A shared cache must not reuse one visitor's id for another.
+@method_decorator(never_cache, name="dispatch")
+@method_decorator(vary_on_headers("Cookie"), name="dispatch")
+class HomepageAnnouncementAPIView(APIView):
     """
     The notice shown above the Catalog homepage hero.
 
@@ -204,12 +208,24 @@ class HomepageAnnouncementAPIView(PublicAPIViewMixin, APIView):
     A blank start shows immediately. A blank end does not expire. When no row
     qualifies, the response is 204 so the homepage renders no banner.
 
+    A signed-in caller also receives dismissal_session_id. That id stays the
+    same until logout, and the next login receives a different one. A
+    signed-out caller receives null. Session authentication is optional:
+    anonymous visitors still get the banner.
+
     Method:
         GET
 
     Example Response (200 OK):
-        {"message": "Registration for the new term is now open.", "tone": "info"}
+        {
+            "message": "Registration for the new term is now open.",
+            "tone": "info",
+            "dismissal_session_id": null
+        }
     """
+
+    authentication_classes = (SessionAuthentication,)
+    permission_classes = [AllowAny]
 
     def get(self, request):
         now = timezone.now()
@@ -222,7 +238,9 @@ class HomepageAnnouncementAPIView(PublicAPIViewMixin, APIView):
         if announcement is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
-        return Response(HomepageAnnouncementSerializer(announcement).data)
+        return Response(
+            HomepageAnnouncementSerializer(announcement, context={"request": request}).data
+        )
 
 
 class HomepageCategoryListAPIView(PublicListAPIView):
