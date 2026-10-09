@@ -199,7 +199,7 @@ class PartnerHomepageListAPIView(PublicListAPIView):
 # Personalized for a signed-in caller: the dismissal id lives in that login's
 # session. A shared cache must not reuse one visitor's id for another.
 @method_decorator(never_cache, name="dispatch")
-@method_decorator(vary_on_headers("Cookie"), name="dispatch")
+@method_decorator(vary_on_headers("Authorization", "Cookie"), name="dispatch")
 class HomepageAnnouncementAPIView(APIView):
     """
     The notice shown above the Catalog homepage hero.
@@ -210,8 +210,8 @@ class HomepageAnnouncementAPIView(APIView):
 
     A signed-in caller also receives dismissal_session_id. That id stays the
     same until logout, and the next login receives a different one. A
-    signed-out caller receives null. Session authentication is optional:
-    anonymous visitors still get the banner.
+    signed-out caller receives null. Login is recognized from the Catalog
+    token or the session cookie, and anonymous visitors still get the banner.
 
     Method:
         GET
@@ -224,7 +224,7 @@ class HomepageAnnouncementAPIView(APIView):
         }
     """
 
-    authentication_classes = (SessionAuthentication,)
+    authentication_classes = (JwtAuthentication, SessionAuthentication)
     permission_classes = [AllowAny]
 
     def get(self, request):
