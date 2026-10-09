@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from course_partnerships.models import Category, EnhancedCourse, Partner, PartnerOrganizationMapping
+from course_partnerships.models import (
+    Category,
+    EnhancedCourse,
+    HomepageAnnouncement,
+    Partner,
+    PartnerOrganizationMapping,
+    homepage_announcement_dismissal_session_id,
+)
 
 
 class AbsoluteUrlMixin:
@@ -278,3 +285,25 @@ class HomepageCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ["id", "name", "courses"]
+
+
+class HomepageAnnouncementSerializer(serializers.ModelSerializer):
+    """
+    The homepage banner payload.
+
+    The message, tone, and dismissal session id are sent. enabled, start_at,
+    and end_at stay on the server, where the view decides whether the banner
+    is visible. dismissal_session_id is null for a signed-out caller.
+    """
+
+    dismissal_session_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HomepageAnnouncement
+        fields = ["message", "tone", "dismissal_session_id"]
+
+    def get_dismissal_session_id(self, _announcement):
+        request = self.context.get("request")
+        if request is None:
+            return None
+        return homepage_announcement_dismissal_session_id(request)
