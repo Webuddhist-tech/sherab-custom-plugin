@@ -84,11 +84,13 @@ setup(
             "course_partnerships = course_partnerships.apps:CoursePartnershipsConfig",
             "user_extension = user_extension.apps:UserExtensionConfig",
             "wishlist = wishlist.apps:WishlistConfig",
+            "course_schedule = course_schedule.apps:CourseScheduleConfig",
         ],
         "cms.djangoapp": [
             "course_partnerships = course_partnerships.apps:CoursePartnershipsConfig",
             "user_extension = user_extension.apps:UserExtensionConfig",
             "ai_course_creator = ai_course_creator.apps:AiCourseCreatorConfig",
+            "course_schedule = course_schedule.apps:CourseScheduleConfig",
         ],
     },
 )
