@@ -2,13 +2,14 @@
 
 Custom Open edX plugins for the **Sherab / WeBuddhist Academy** platform, packaged
 together as a single installable distribution (`custom-extensions`). The package
-bundles four independent Django apps that plug into the LMS and/or CMS via the
+bundles five independent Django apps that plug into the LMS and/or CMS via the
 [Open edX plugin framework](https://edx.readthedocs.io/projects/edx-django-utils/en/latest/edx_django_utils.plugins.html)
 (`edx_django_utils.plugins`) — no edx-platform core code is modified.
 
 | App | Runs in | Purpose |
 | --- | --- | --- |
 | [`ai_course_creator`](#ai_course_creator) | CMS (Studio) | Conversational AI ("Sherab") that designs and generates whole courses, and edits existing sections, using Google Gemini. |
+| [`course_schedule`](#course_schedule) | LMS + CMS | Per-section schedule (dates, times, instructor, tools, notes) set in the Studio outline and shown on the learner Dates tab. |
 | [`course_partnerships`](#course_partnerships) | LMS | Partner organizations, centers, categories, and course-creator profiles, with branding assets and a mobile API. |
 | [`user_extension`](#user_extension) | LMS | Extends user profiles with partner relationships; auto-approves ID verification on registration. |
 | [`wishlist`](#wishlist) | LMS | Personal per-user course wishlist. |
@@ -36,8 +37,8 @@ and installed automatically by `setup.py`.
 The apps register through the entry points in [`setup.py`](setup.py):
 
 ```
-cms.djangoapp:  ai_course_creator, course_partnerships, user_extension
-lms.djangoapp:  course_partnerships, user_extension, wishlist
+cms.djangoapp:  ai_course_creator, course_partnerships, course_schedule, user_extension
+lms.djangoapp:  course_partnerships, course_schedule, user_extension, wishlist
 ```
 
 After installing or changing models, run migrations for the relevant process, e.g.:
@@ -175,6 +176,80 @@ then `tutor config save` and restart CMS.
 
 The matching frontend lives in the **`frontend-app-authoring`** MFE under
 `src/ai-course-creator/` (the creator modal and the section-editor sidebar).
+
+---
+
+## `course_schedule`
+
+**LMS + CMS.** Lets course creators schedule each section (chapter) of an
+**instructor-paced** course from the Studio course outline, and shows that schedule
+to learners on the Dates tab, next to the platform's own dates.
+
+- **Informational only.** It never changes release dates, due dates or access, and
+  never writes to the modulestore or edx-when. It lives in its own tables, so dates
+  can be moved freely without republishing.
+- **One timezone per course.** Dates and times are wall-clock values in the course
+  timezone, and learners see them in that timezone too.
+- **Title** is the section's display name, read live, so it follows renames.
+
+### Models
+
+- `CourseScheduleSettings`: the course timezone (default `COURSE_SCHEDULE_DEFAULT_TIMEZONE`).
+- `SectionSchedule`: one row per scheduled section, holding `start_date`, `num_days`
+  (a section can span several days), optional `start_time`/`end_time`,
+  `instructor`, `tools_required` and `notes`.
+
+### Components
+
+- `services.py`: pure logic, unit-tested without edx-platform. It computes warnings
+  (overlap, before course start, after course end, before content release, subsection
+  due before the session), the "content available from" date, and session ordering.
+  Warnings never block saving. Auto-fill and shifting later sections happen in the
+  authoring MFE, so the creator sees a preview before saving.
+- `views_cms.py`: the Studio API. Course authors only, and it refuses changes for
+  self-paced courses.
+- `views_lms.py`: the learner API. Access matches the platform's Dates tab: enrolled
+  learners and staff, with masquerade. A session is listed only if its section is in
+  the learner's own course outline (`learning_sequences`), so staff-only, hidden and
+  restricted sections never leak.
+- `signals.py`: drops a section's schedule when the section is deleted
+  (`XBLOCK_DELETED`), and all of a course's rows when the course is deleted.
+
+### API endpoints
+
+| Host | Method | Path | Purpose |
+| --- | --- | --- | --- |
+| Studio | GET | `/api/course-schedule/v1/studio/<course_id>/` | Every section in outline order, with its schedule and warnings, plus the timezone choices. |
+| Studio | PUT | `/api/course-schedule/v1/studio/<course_id>/` | Save a batch: `{"timezone"?, "upsert": [...], "remove": [section_id, ...]}`, applied in one transaction. Returns the same payload as GET. |
+| LMS | GET | `/api/course-schedule/v1/<course_id>/` | The sessions this learner can see, sorted by date and time. `enabled: false` for self-paced courses. |
+
+### Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `COURSE_SCHEDULE_ENABLED` | `True` | Master on/off switch (hides Studio controls, disables the learner API). |
+| `COURSE_SCHEDULE_DEFAULT_TIMEZONE` | `Asia/Kolkata` | Timezone of a course until its creator picks another. |
+
+### Frontend and styles
+
+- Studio UI: `frontend-app-authoring` `src/course-schedule/`. It is mounted from
+  `SectionCard.tsx` (badge next to "Section highlights") and `StatusBar.jsx`
+  ("Course schedule" item).
+- Dates tab: `frontend-app-learning` `src/course-home/dates-tab/section-schedule/`.
+  It is mounted from `timeline/Timeline.jsx` and `timeline/Day.jsx`.
+- All CSS: `brand-openedx` `paragon/_authoring.scss` (Studio; the course schedule
+  styles are its section 3) and `paragon/_learning.scss` (Dates tab; its section 2).
+
+### Tests
+
+Run them inside the containers with the edx-platform test settings:
+
+```bash
+tutor dev exec cms python -m pytest -c cms/pytest.ini --ds=cms.envs.test --rootdir=/openedx/edx-platform -p conftest \
+    /mnt/sherab-custom-plugin/course_schedule/tests/test_views_cms.py /mnt/sherab-custom-plugin/course_schedule/tests/test_services.py
+tutor dev exec lms python -m pytest -c setup.cfg --ds=lms.envs.test --rootdir=/openedx/edx-platform -p conftest \
+    /mnt/sherab-custom-plugin/course_schedule/tests/test_views_lms.py
+```
 
 ---
 
