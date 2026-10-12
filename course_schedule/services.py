@@ -47,6 +47,33 @@ class SessionTimes:
         end_date = self.end_date + timedelta(days=1) if self.ends_next_day else self.end_date
         return datetime.combine(end_date, self.end_time or time.max, tzinfo=tz)
 
+    def _day_interval(self, day, tz):
+        """The (start, end) datetimes of the session's occurrence on one of its days."""
+        end_day = day + timedelta(days=1) if self.ends_next_day else day
+        return (
+            datetime.combine(day, self.start_time or time.min, tzinfo=tz),
+            datetime.combine(end_day, self.end_time or time.max, tzinfo=tz),
+        )
+
+    def overlaps(self, other, tz):
+        """
+        Whether any day of this session clashes with any day of ``other``.
+
+        The times repeat on each day, so a 10:00-12:00 session over three days
+        doesn't clash with a 15:00 session on day two. Only the same day and
+        the neighbouring days of ``other`` can clash with a given day, since
+        one occurrence runs past midnight at most once.
+        """
+        for n in range(self.num_days):
+            day = self.start_date + timedelta(days=n)
+            start, end = self._day_interval(day, tz)
+            offset = (day - other.start_date).days
+            for m in range(max(0, offset - 1), min(other.num_days, offset + 2)):
+                other_start, other_end = other._day_interval(other.start_date + timedelta(days=m), tz)
+                if start < other_end and other_start < end:
+                    return True
+        return False
+
     def starts_before(self, moment, tz):
         """
         Whether the session starts before ``moment`` (an aware datetime).
@@ -134,15 +161,12 @@ def compute_warnings(course, ordered_sections, schedules, tz):
 
     for section in scheduled:
         session = schedules[section.section_id]
-        start = session.start_datetime(tz)
-        end = session.end_datetime(tz)
         items = []
 
         for other in scheduled:
             if other.section_id == section.section_id:
                 continue
-            other_session = schedules[other.section_id]
-            if start < other_session.end_datetime(tz) and other_session.start_datetime(tz) < end:
+            if session.overlaps(schedules[other.section_id], tz):
                 items.append(_warning(OVERLAP, section_id=other.section_id, display_name=other.display_name))
 
         if course.start and session.starts_before(course.start, tz):

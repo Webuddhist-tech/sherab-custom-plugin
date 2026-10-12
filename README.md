@@ -206,8 +206,8 @@ to learners on the Dates tab, next to the platform's own dates.
   due before the session), the "content available from" date, and session ordering.
   Warnings never block saving. Auto-fill and shifting later sections happen in the
   authoring MFE, so the creator sees a preview before saving.
-- `views_cms.py`: the Studio API. Course authors only, and it refuses changes for
-  self-paced courses.
+- `views_cms.py`: the Studio API. Course authors only (except the timezone list),
+  and it refuses changes for self-paced courses.
 - `views_lms.py`: the learner API. Access matches the platform's Dates tab: enrolled
   learners and staff, with masquerade. A session is listed only if its section is in
   the learner's own course outline (`learning_sequences`), so staff-only, hidden and
@@ -219,7 +219,8 @@ to learners on the Dates tab, next to the platform's own dates.
 
 | Host | Method | Path | Purpose |
 | --- | --- | --- | --- |
-| Studio | GET | `/api/course-schedule/v1/studio/<course_id>/` | Every section in outline order, with its schedule and warnings, plus the timezone choices. |
+| Studio | GET | `/api/course-schedule/v1/studio/<course_id>/` | Every section in outline order, with its schedule and warnings, and the course's current timezone. |
+| Studio | GET | `/api/course-schedule/v1/studio/timezones/` | The timezone names the Studio API accepts. Any logged-in user. |
 | Studio | PUT | `/api/course-schedule/v1/studio/<course_id>/` | Save a batch: `{"timezone"?, "upsert": [...], "remove": [section_id, ...]}`, applied in one transaction. Returns the same payload as GET. |
 | LMS | GET | `/api/course-schedule/v1/<course_id>/` | The sessions this learner can see, sorted by date and time. `enabled: false` for self-paced courses. |
 

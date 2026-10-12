@@ -5,8 +5,9 @@ Studio (CMS) API for course section schedules, used by the course outline.
     PUT  api/course-schedule/v1/studio/<course_id>/  -> save a batch of changes, returns the same as GET
     GET  api/course-schedule/v1/studio/timezones/    -> the timezone names the API accepts
 
-Course authors only. Schedules exist only for instructor-paced courses, so a
-self-paced course can be read but not changed.
+Course authors only, except the timezone list, which is a static list with no
+course behind it and is open to any logged-in user. Schedules exist only for
+instructor-paced courses, so a self-paced course can be read but not changed.
 """
 
 from zoneinfo import ZoneInfo

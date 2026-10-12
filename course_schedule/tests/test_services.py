@@ -71,6 +71,31 @@ class ComputeWarningsTest(TestCase):
         self.assertEqual(warnings["s2"], [{"code": OVERLAP, "params": {"section_id": "s3", "display_name": "Lesson 3"}}])
         self.assertEqual(codes(warnings["s3"]), [OVERLAP])
 
+    def test_multi_day_section_does_not_overlap_a_different_time_on_a_middle_day(self):
+        schedules = {
+            "s1": SessionTimes(date(2026, 10, 12), 3, time(10, 0), time(12, 0)),
+            "s2": SessionTimes(date(2026, 10, 13), 1, time(15, 0), time(16, 0)),
+        }
+        warnings = compute_warnings(self.course, self.sections, schedules, IST)
+        self.assertEqual(warnings, {"s1": [], "s2": []})
+
+    def test_multi_day_section_overlaps_the_same_time_on_a_middle_day(self):
+        schedules = {
+            "s1": SessionTimes(date(2026, 10, 12), 3, time(10, 0), time(12, 0)),
+            "s2": SessionTimes(date(2026, 10, 13), 1, time(11, 0), time(13, 0)),
+        }
+        warnings = compute_warnings(self.course, self.sections, schedules, IST)
+        self.assertEqual(codes(warnings["s1"]), [OVERLAP])
+        self.assertEqual(codes(warnings["s2"]), [OVERLAP])
+
+    def test_session_past_midnight_overlaps_the_next_days_early_session(self):
+        schedules = {
+            "s1": SessionTimes(date(2026, 10, 12), 1, time(22, 0), time(1, 0)),
+            "s2": SessionTimes(date(2026, 10, 13), 1, time(0, 30), time(2, 0)),
+        }
+        warnings = compute_warnings(self.course, self.sections, schedules, IST)
+        self.assertEqual(codes(warnings["s1"]), [OVERLAP])
+
     def test_same_day_different_times_do_not_overlap(self):
         schedules = {
             "s1": SessionTimes(date(2026, 10, 12), 1, time(9, 0), time(10, 0)),
