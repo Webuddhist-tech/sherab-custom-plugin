@@ -19,6 +19,9 @@ urlpatterns = [
     # Endpoint to retrieve all partners, for the homepage schools-and-partners carousel
     path("api/partners/homepage/", PartnerHomepageListAPIView.as_view(), name="partner-homepage-list"),
 
+    # Endpoint to retrieve the notice shown above the Catalog homepage hero
+    path("api/announcements/homepage/", HomepageAnnouncementAPIView.as_view(), name="homepage-announcement"),
+
     # Endpoint to retrieve the homepage course categories with their courses
     path("api/categories/homepage/", HomepageCategoryListAPIView.as_view(), name="homepage-category-list"),
 
