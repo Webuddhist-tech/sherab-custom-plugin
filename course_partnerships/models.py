@@ -9,7 +9,10 @@ file and check it in at the same time as your model changes. To do that,
 3. ./manage.py lms migrate --settings=production
 """
 
+import uuid
+
 from ckeditor.fields import RichTextField
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel
@@ -303,3 +306,110 @@ class CourseCreator(TimeStampedModel):
     class Meta:
         verbose_name = "Course Creator"
         verbose_name_plural = "Course Creators"
+
+
+HOMEPAGE_ANNOUNCEMENT_TONE_INFO = "info"
+HOMEPAGE_ANNOUNCEMENT_TONE_SUCCESS = "success"
+HOMEPAGE_ANNOUNCEMENT_TONE_WARNING = "warning"
+HOMEPAGE_ANNOUNCEMENT_TONE_ALERT = "alert"
+
+HOMEPAGE_ANNOUNCEMENT_TONE_CHOICES = [
+    (HOMEPAGE_ANNOUNCEMENT_TONE_INFO, _("Info")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_SUCCESS, _("Success")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_WARNING, _("Warning")),
+    (HOMEPAGE_ANNOUNCEMENT_TONE_ALERT, _("Alert")),
+]
+
+
+# Stored inside the Django login session. It is not the session key.
+HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY = "homepage_announcement_dismissal_id"
+
+
+def homepage_announcement_dismissal_session_id(request):
+    """
+    Return this login's banner id, creating it the first time.
+
+    Signed-out callers get None. The value is random and is not the Django
+    session key. Logout clears the session, so the next login gets a new id
+    and a closed banner shows again.
+    """
+    user = getattr(request, "user", None)
+    session = getattr(request, "session", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    if session is None or not getattr(session, "session_key", None):
+        return None
+    if not session.get("_auth_user_id"):
+        return None
+
+    dismissal_id = session.get(HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY)
+    if not dismissal_id:
+        dismissal_id = uuid.uuid4().hex
+        session[HOMEPAGE_ANNOUNCEMENT_DISMISSAL_SESSION_KEY] = dismissal_id
+    return dismissal_id
+
+
+def homepage_announcement_is_active(enabled, start_at, end_at, now):
+    """
+    Return whether a homepage announcement should be shown at `now`.
+
+    A blank start shows as soon as the row is enabled. A blank end never
+    expires on its own. The end instant itself is hidden, so a banner set
+    to end at noon is gone at noon.
+    """
+    if not enabled:
+        return False
+    if start_at is not None and start_at > now:
+        return False
+    if end_at is not None and end_at <= now:
+        return False
+    return True
+
+
+class HomepageAnnouncement(models.Model):
+    """
+    One admin-written notice shown above the Catalog homepage hero.
+
+    Several rows can exist. The public API shows the newest row that
+    homepage_announcement_is_active accepts, and nothing when none do.
+    """
+
+    message = models.TextField(
+        help_text=_("Plain text shown in the banner. A URL is shown as text."),
+    )
+    tone = models.CharField(
+        max_length=16,
+        choices=HOMEPAGE_ANNOUNCEMENT_TONE_CHOICES,
+        default=HOMEPAGE_ANNOUNCEMENT_TONE_INFO,
+        help_text=_(
+            "Info is a calm reminder, Success is positive, Warning is caution, and Alert is urgent."
+        ),
+    )
+    enabled = models.BooleanField(
+        default=False,
+        help_text=_("Uncheck to hide the banner immediately, even inside the time window."),
+    )
+    start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Leave blank to show as soon as the banner is enabled."),
+    )
+    end_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Leave blank to keep showing until the banner is disabled. Hidden once this time is reached."),
+    )
+
+    class Meta:
+        app_label = "course_partnerships"
+        verbose_name = "Homepage Announcement"
+        verbose_name_plural = "Homepage Announcements"
+        ordering = ["-id"]
+
+    def __str__(self):
+        text = self.message.strip()
+        return text if len(text) <= 80 else f"{text[:77]}..."
+
+    def clean(self):
+        if self.start_at and self.end_at and self.end_at <= self.start_at:
+            raise ValidationError({"end_at": _("End must be after start.")})

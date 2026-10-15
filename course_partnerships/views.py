@@ -3,7 +3,8 @@ import logging
 from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.student.models import CourseEnrollment
 from django.db.models import Count, Exists, OuterRef, Prefetch
-from django.http import Http404
+from django.contrib.auth.decorators import login_required
+from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
@@ -21,12 +22,14 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from organizations.api import get_organizations
 from xmodule.course_block import CATALOG_VISIBILITY_CATALOG_AND_ABOUT
 
 from .helpers import get_course_key_or_error
 from .models import *
 from .serializers import (
     HeroCourseCardSerializer,
+    HomepageAnnouncementSerializer,
     HomepageCategorySerializer,
     PartnerOrganizationMappingSerializer,
     PartnerSerializer,
@@ -191,6 +194,53 @@ class PartnerHomepageListAPIView(PublicListAPIView):
     # the database return rows in any order, which can reshuffle the logos
     # between requests.
     queryset = Partner.objects.order_by("name")
+
+
+# Personalized for a signed-in caller: the dismissal id lives in that login's
+# session. A shared cache must not reuse one visitor's id for another.
+@method_decorator(never_cache, name="dispatch")
+@method_decorator(vary_on_headers("Authorization", "Cookie"), name="dispatch")
+class HomepageAnnouncementAPIView(APIView):
+    """
+    The notice shown above the Catalog homepage hero.
+
+    Returns the newest saved row that is enabled and inside its time window.
+    A blank start shows immediately. A blank end does not expire. When no row
+    qualifies, the response is 204 so the homepage renders no banner.
+
+    A signed-in caller also receives dismissal_session_id. That id stays the
+    same until logout, and the next login receives a different one. A
+    signed-out caller receives null. Login is recognized from the Catalog
+    token or the session cookie, and anonymous visitors still get the banner.
+
+    Method:
+        GET
+
+    Example Response (200 OK):
+        {
+            "message": "Registration for the new term is now open.",
+            "tone": "info",
+            "dismissal_session_id": null
+        }
+    """
+
+    authentication_classes = (JwtAuthentication, SessionAuthentication)
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        now = timezone.now()
+        announcement = None
+        for row in HomepageAnnouncement.objects.filter(enabled=True).order_by("-id"):
+            if homepage_announcement_is_active(row.enabled, row.start_at, row.end_at, now) and row.message.strip():
+                announcement = row
+                break
+
+        if announcement is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        return Response(
+            HomepageAnnouncementSerializer(announcement, context={"request": request}).data
+        )
 
 
 class HomepageCategoryListAPIView(PublicListAPIView):
@@ -545,3 +595,16 @@ class HeroCourseListAPIView(ListAPIView):
             seen.add(extra.course_id)
 
         return courses
+
+
+class OrganizationDisplayNamesView(View):
+    """Return full organization names keyed by their short names."""
+
+    @method_decorator(login_required)
+    def get(self, request, *args, **kwargs):  # pylint: disable=unused-argument
+        """Return the labels used when displaying organization identifiers in Studio."""
+        return JsonResponse({
+            organization["short_name"]: organization["name"]
+            for organization in get_organizations()
+            if organization.get("name")
+        })

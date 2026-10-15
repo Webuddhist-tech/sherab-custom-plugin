@@ -28,7 +28,12 @@ class CoursePartnershipsConfig(AppConfig):
                 PluginURLs.NAMESPACE: name,
                 PluginURLs.REGEX: "^",
                 PluginURLs.RELATIVE_PATH: "urls",
-            }
+            },
+            ProjectType.CMS: {
+                PluginURLs.NAMESPACE: name,
+                PluginURLs.REGEX: "^",
+                PluginURLs.RELATIVE_PATH: "urls",
+            },
         },
         PluginSettings.CONFIG: {
             ProjectType.LMS: {
@@ -40,6 +45,13 @@ class CoursePartnershipsConfig(AppConfig):
     }
 
     def ready(self):
-        from .signals import handlers
+        from django.conf import settings
+
+        from .signals import handlers  # pylint: disable=unused-import
+
+        # Course search runs in the LMS. Studio only needs the display-name URL.
+        if getattr(settings, "ROOT_URLCONF", None) == "lms.urls":
+            from .search import register_organization_display_names
+            register_organization_display_names()
 
         log.debug("{label} is ready.".format(label=self.label))
